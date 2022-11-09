@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 type ScannerError struct {
 	Line    uint
@@ -42,6 +45,10 @@ func (s *Scanner) isAtEnd() bool {
 	return s.current >= uint(len(s.source))
 }
 
+func (s *Scanner) isDigit(char byte) bool {
+	return char >= '0' && char <= '9'
+}
+
 func (s *Scanner) match(expected byte) bool {
 	if s.isAtEnd() {
 		return false
@@ -53,11 +60,63 @@ func (s *Scanner) match(expected byte) bool {
 	return true
 }
 
+func (s *Scanner) parseNumber() (Option[Token], error) {
+	for s.isDigit(s.peek()) {
+		s.advance()
+	}
+	// Look for a fractional part.
+	if s.peek() == '.' && s.isDigit(s.peekNext()) {
+		// Consume the "."
+		s.advance()
+
+		for s.isDigit(s.peek()) {
+			s.advance()
+		}
+	}
+	value := s.source[s.start:s.current]
+	numericValue, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return NewEmptyOption[Token](), ScannerError{
+			Line:    s.line,
+			Message: "Invalid number.",
+			Where:   "", // TODO: Implement
+		}
+	}
+	return NewOption[Token](NewToken(NUMBER, s.source[s.start:s.current], numericValue, s.line)), nil
+}
+
+func (s *Scanner) parseString() (Option[Token], error) {
+	for s.peek() != '"' && !s.isAtEnd() {
+		if s.peek() == '\n' {
+			s.line++
+		}
+		s.advance()
+	}
+	if s.isAtEnd() {
+		return NewEmptyOption[Token](), ScannerError{
+			Line:    s.line,
+			Message: "Unterminated string.",
+			Where:   "", // TODO: Implement
+		}
+	}
+	// The closing "
+	s.advance()
+	value := s.source[s.start+1 : s.current-1]
+	return NewOption[Token](NewToken(STRING, value, value, s.line)), nil
+}
+
 func (s *Scanner) peek() byte {
 	if s.isAtEnd() {
 		return '\x00'
 	}
 	return s.source[s.current]
+}
+
+func (s *Scanner) peekNext() byte {
+	if s.current+1 >= uint(len(s.source)) {
+		return '\x00'
+	}
+	return s.source[s.current+1]
 }
 
 func (s *Scanner) scanToken() (Option[Token], error) {
@@ -117,6 +176,17 @@ func (s *Scanner) scanToken() (Option[Token], error) {
 		} else {
 			return NewOption[Token](s.createToken(SLASH)), nil
 		}
+	case ' ', '\r', '\t':
+		// Ignore whitespace.
+		return NewEmptyOption[Token](), nil
+	case '\n':
+		s.line++
+		return NewEmptyOption[Token](), nil
+	case '"':
+		return s.parseString()
+	}
+	if s.isDigit(char) {
+		return s.parseNumber()
 	}
 	return NewEmptyOption[Token](), ScannerError{
 		Line:    s.line,

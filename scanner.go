@@ -41,6 +41,14 @@ func (s *Scanner) createToken(tokenType TokenType) Token {
 	return NewToken(tokenType, s.source[s.start:s.current], nil, s.line)
 }
 
+func (s *Scanner) isAlpha(char byte) bool {
+	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_'
+}
+
+func (s *Scanner) isAlphaNumeric(char byte) bool {
+	return s.isAlpha(char) || s.isDigit(char)
+}
+
 func (s *Scanner) isAtEnd() bool {
 	return s.current >= uint(len(s.source))
 }
@@ -58,6 +66,18 @@ func (s *Scanner) match(expected byte) bool {
 	}
 	s.current++
 	return true
+}
+
+func (s *Scanner) parseIdentifier() (Option[Token], error) {
+	for s.isAlphaNumeric(s.peek()) {
+		s.advance()
+	}
+	identifier := s.source[s.start:s.current]
+	keywordType, ok := ReservedWordsMap[identifier]
+	if !ok {
+		keywordType = IDENTIFIER
+	}
+	return NewOption[Token](NewToken(keywordType, identifier, nil, s.line)), nil
 }
 
 func (s *Scanner) parseNumber() (Option[Token], error) {
@@ -187,6 +207,9 @@ func (s *Scanner) scanToken() (Option[Token], error) {
 	}
 	if s.isDigit(char) {
 		return s.parseNumber()
+	}
+	if s.isAlpha(char) {
+		return s.parseIdentifier()
 	}
 	return NewEmptyOption[Token](), ScannerError{
 		Line:    s.line,
